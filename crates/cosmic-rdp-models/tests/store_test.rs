@@ -10,7 +10,7 @@ fn test_profile_creation_and_defaults() {
     assert_eq!(profile.port, 3389);
     assert!(profile.audio.microphone_enabled);
     assert_eq!(profile.audio.output_mode, AudioOutputMode::PlayLocally);
-    assert!(profile.camera.enabled);
+    assert!(!profile.camera.enabled);
     assert!(profile.display.dynamic_resolution);
 }
 

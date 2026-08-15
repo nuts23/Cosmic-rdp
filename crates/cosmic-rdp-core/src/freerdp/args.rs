@@ -40,7 +40,11 @@ pub fn build_freerdp_arguments(
 
     // Microphone Input (audin) - critical for Teams
     if profile.audio.microphone_enabled {
-        args.push("/microphone".to_string());
+        if let Some(ref mic) = profile.audio.preferred_mic_device {
+            args.push(format!("/microphone:sys:pulse,dev:{}", mic));
+        } else {
+            args.push("/microphone".to_string());
+        }
     } else {
         args.push("-microphone".to_string());
     }

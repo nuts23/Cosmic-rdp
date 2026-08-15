@@ -4,7 +4,7 @@ pub mod profile;
 pub mod rdp_file;
 pub mod store;
 
-pub use devices::{list_local_cameras, CameraDeviceInfo};
+pub use devices::{list_local_audio_inputs, list_local_cameras, AudioDeviceInfo, CameraDeviceInfo};
 pub use keyring::{KeyringError, SecretStore};
 pub use profile::{
     AudioOutputMode, AudioSettings, CameraSettings, CertificatePolicy, ConnectionProfile,

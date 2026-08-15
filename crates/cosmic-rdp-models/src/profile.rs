@@ -69,7 +69,7 @@ pub struct CameraSettings {
 impl Default for CameraSettings {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             device_name: None,
         }
     }

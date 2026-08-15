@@ -1,8 +1,10 @@
 # Cosmic RDP: Project Walkthrough & Final Summary
 
-## Complete Implementation: Phases 1–6 Finished & Connection Fix Applied ✅
+## Complete Implementation: Phases 1–6 Finished & Published to GitHub ✅
 
 **Cosmic RDP** is a modern, streamlined, first-party RDP client tailored for the **COSMIC Desktop Environment** (Rust + `libcosmic` / `iced`), built with an "Anti-Remmina" philosophy: single-window connection hub, streamlined settings drawer, and deep optimization for Microsoft Teams (low-latency audio redirection, webcam passthrough, and dynamic EGFX display scaling).
+
+- **GitHub Repository**: [https://github.com/nuts23/Cosmic-rdp](https://github.com/nuts23/Cosmic-rdp)
 
 ---
 
@@ -12,6 +14,7 @@
 Cosmic-rdp/
 ├── Cargo.toml                      # Workspace manifest
 ├── justfile                        # Build/Test/Run/Install recipes
+├── README.md                       # GitHub documentation & getting started
 ├── roadmap.md                      # Architecture & technical roadmap
 ├── walkthrough.md                  # Complete implementation summary
 ├── .gitignore
@@ -59,20 +62,7 @@ Cosmic-rdp/
 
 ---
 
-## 2. Recent Fix for Connection Triggering
-
-1. **FreeRDP 3 Modern Executable Priority**:
-   - Updated executable search to prioritize modern Wayland / SDL clients: `["sdl-freerdp", "wlfreerdp", "xfreerdp", "sdl-freerdp3", "wlfreerdp3", "xfreerdp3", "freerdp"]`.
-2. **Terminal Non-Blocking Certificate Policy**:
-   - Used `/cert:ignore` for GUI-driven connections so FreeRDP does not block waiting for interactive stdin in background pipes.
-3. **Session Stream Dispatch**:
-   - Fixed `Task::run` event streaming in `app.rs` ensuring asynchronous state transitions (`Connecting`, `Connected`, `Failed`) are immediately dispatched to `AppModel::update` and reflected in the UI.
-4. **Enhanced Active Session Screen**:
-   - Added instant connection feedback with "Cancel" and "Back to Hub" buttons, displaying exact connection failure reasons if a server is unreachable or credentials fail.
-
----
-
-## 3. Automated Test Suite
+## 2. Automated Test Suite
 
 Ran `cargo test --workspace`:
 ```
@@ -101,7 +91,7 @@ test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 ---
 
-## 4. How to Run & Test
+## 3. How to Run & Test
 
 1. **Launch the application**:
    ```bash

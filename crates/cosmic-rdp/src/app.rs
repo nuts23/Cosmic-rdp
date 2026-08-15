@@ -14,7 +14,7 @@ use cosmic_rdp_core::{
     session::{RdpBackend, RdpSessionHandle},
 };
 use cosmic_rdp_models::{
-    devices::{list_local_cameras, CameraDeviceInfo},
+    devices::{list_local_audio_inputs, list_local_cameras, AudioDeviceInfo, CameraDeviceInfo},
     export_rdp_file,
     keyring::SecretStore,
     parse_rdp_file,
@@ -84,6 +84,9 @@ pub struct ProfileFormState {
     pub password: String,
     pub save_password: bool,
     pub mic_enabled: bool,
+    pub preferred_mic_device: Option<String>,
+    pub available_mics: Vec<AudioDeviceInfo>,
+    pub mic_labels: Vec<String>,
     pub audio_output: AudioOutputMode,
     pub low_latency_audio: bool,
     pub camera_enabled: bool,
@@ -106,6 +109,12 @@ impl Default for ProfileFormState {
             camera_labels.push(cam.name.clone());
         }
 
+        let available_mics = list_local_audio_inputs();
+        let mut mic_labels = vec!["Default System Microphone".to_string()];
+        for mic in &available_mics {
+            mic_labels.push(mic.name.clone());
+        }
+
         Self {
             id: None,
             name: String::new(),
@@ -116,9 +125,12 @@ impl Default for ProfileFormState {
             password: String::new(),
             save_password: true,
             mic_enabled: true,
+            preferred_mic_device: None,
+            available_mics,
+            mic_labels,
             audio_output: AudioOutputMode::PlayLocally,
             low_latency_audio: true,
-            camera_enabled: true,
+            camera_enabled: false,
             camera_device: None,
             available_cameras,
             camera_labels,
@@ -140,6 +152,12 @@ impl ProfileFormState {
             camera_labels.push(cam.name.clone());
         }
 
+        let available_mics = list_local_audio_inputs();
+        let mut mic_labels = vec!["Default System Microphone".to_string()];
+        for mic in &available_mics {
+            mic_labels.push(mic.name.clone());
+        }
+
         Self {
             id: Some(p.id),
             name: p.name.clone(),
@@ -150,6 +168,9 @@ impl ProfileFormState {
             password: String::new(),
             save_password: true,
             mic_enabled: p.audio.microphone_enabled,
+            preferred_mic_device: p.audio.preferred_mic_device.clone(),
+            available_mics,
+            mic_labels,
             audio_output: p.audio.output_mode,
             low_latency_audio: p.audio.low_latency,
             camera_enabled: p.camera.enabled,
@@ -191,7 +212,7 @@ impl ProfileFormState {
                 microphone_enabled: self.mic_enabled,
                 output_mode: self.audio_output,
                 low_latency: self.low_latency_audio,
-                preferred_mic_device: None,
+                preferred_mic_device: self.preferred_mic_device.clone(),
             },
             camera: CameraSettings {
                 enabled: self.camera_enabled,
@@ -255,6 +276,7 @@ pub enum Message {
     UpdateFormPassword(String),
     ToggleFormSavePassword(bool),
     ToggleFormMic(bool),
+    SelectMicDevice(usize),
     ToggleFormLowLatencyAudio(bool),
     SelectAudioOutput(usize),
     ToggleFormCamera(bool),
@@ -389,6 +411,14 @@ impl cosmic::Application for AppModel {
             }
             Message::ToggleFormMic(v) => {
                 self.form_state.mic_enabled = v;
+                Task::none()
+            }
+            Message::SelectMicDevice(idx) => {
+                if idx == 0 {
+                    self.form_state.preferred_mic_device = None;
+                } else if let Some(mic) = self.form_state.available_mics.get(idx - 1) {
+                    self.form_state.preferred_mic_device = Some(mic.id.clone());
+                }
                 Task::none()
             }
             Message::ToggleFormLowLatencyAudio(v) => {
@@ -1142,6 +1172,19 @@ impl AppModel {
             .label(fl!("microphone"))
             .on_toggle(Message::ToggleFormMic);
 
+        let selected_mic_idx = f
+            .preferred_mic_device
+            .as_ref()
+            .and_then(|dev| f.available_mics.iter().position(|m| &m.id == dev))
+            .map(|pos| pos + 1)
+            .unwrap_or(0);
+
+        let mic_dropdown = widget::dropdown(
+            &f.mic_labels[..],
+            Some(selected_mic_idx),
+            Message::SelectMicDevice,
+        );
+
         let low_latency_toggle = widget::toggler(f.low_latency_audio)
             .label(fl!("low-latency-audio"))
             .on_toggle(Message::ToggleFormLowLatencyAudio);
@@ -1236,7 +1279,7 @@ impl AppModel {
             }
         }
 
-        let form = widget::column::with_capacity(20)
+        let mut form = widget::column::with_capacity(22)
             .spacing(14)
             .push(widget::text::title4("General"))
             .push(name_input)
@@ -1247,15 +1290,29 @@ impl AppModel {
             .push(domain_input)
             .push(pass_input)
             .push(save_pass_toggle)
-            .push(widget::text::title4("Teams & Audio Redirection"))
-            .push(mic_toggle)
+            .push(widget::text::title4("Audio & Microphone Redirection"))
+            .push(mic_toggle);
+
+        if f.mic_enabled {
+            form = form
+                .push(widget::text::caption("Microphone Input Device"))
+                .push(mic_dropdown);
+        }
+
+        form = form
             .push(low_latency_toggle)
             .push(widget::text::caption(fl!("audio-output")))
             .push(audio_dropdown)
-            .push(widget::text::title4("Camera Passthrough"))
-            .push(camera_toggle)
-            .push(widget::text::caption(fl!("camera-device")))
-            .push(camera_dropdown)
+            .push(widget::text::title4("Webcam Passthrough (Microsoft Teams)"))
+            .push(camera_toggle);
+
+        if f.camera_enabled {
+            form = form
+                .push(widget::text::caption(fl!("camera-device")))
+                .push(camera_dropdown);
+        }
+
+        form = form
             .push(widget::text::title4("Display & Resolution"))
             .push(dynamic_res_toggle)
             .push(widget::text::caption(fl!("scaling-mode")))
