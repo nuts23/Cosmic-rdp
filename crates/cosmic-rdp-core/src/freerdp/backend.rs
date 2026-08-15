@@ -5,10 +5,11 @@ use crate::session::{RdpBackend, SessionError};
 use async_trait::async_trait;
 use cosmic_rdp_models::ConnectionProfile;
 use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 /// Production FreeRDP 3 backend driver
 pub struct FreeRdpBackend {
@@ -33,14 +34,14 @@ impl FreeRdpBackend {
             return exe.clone();
         }
 
-        // Search for standard FreeRDP 3 client binaries on Linux (preferring modern SDL / Wayland clients)
+        // On Linux / Wayland, check xfreerdp and sdl-freerdp
         for bin in &[
+            "xfreerdp",
             "sdl-freerdp",
             "wlfreerdp",
-            "xfreerdp",
+            "xfreerdp3",
             "sdl-freerdp3",
             "wlfreerdp3",
-            "xfreerdp3",
             "freerdp",
         ] {
             if let Ok(path) = which::which(bin) {
@@ -72,10 +73,10 @@ impl RdpBackend for FreeRdpBackend {
         let args = build_freerdp_arguments(&profile, password.as_deref());
 
         info!(
-            "Launching FreeRDP backend [{}] for host: {}:{}",
+            "Launching FreeRDP client [{}] for {}:{}",
             bin_path, profile.host, profile.port
         );
-        debug!("FreeRDP arguments: {:?}", args);
+        debug!("Arguments: {:?}", args);
 
         let _ = event_tx
             .send(SessionEvent::StateChanged(SessionState::Connecting {
@@ -88,6 +89,7 @@ impl RdpBackend for FreeRdpBackend {
 
         let mut cmd = Command::new(&bin_path);
         cmd.args(&args)
+            .env("WLOG_LEVEL", "INFO")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -100,35 +102,52 @@ impl RdpBackend for FreeRdpBackend {
 
         let event_tx_stdout = event_tx.clone();
         let host_name = profile.host.clone();
+        let log_history = Arc::new(Mutex::new(Vec::<String>::new()));
+        let last_error = Arc::new(Mutex::new(Option::<String>::None));
 
-        // Monitor stdout for connection events and certificate prompts
+        let logs_stdout = log_history.clone();
+        let err_stdout = last_error.clone();
         if let Some(out) = stdout {
             tokio::spawn(async move {
                 let reader = BufReader::new(out);
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    info!("[FreeRDP stdout] {}", line);
-                    parse_freerdp_log_line(&line, &host_name, &event_tx_stdout).await;
+                    info!("[FreeRDP] {}", line);
+                    {
+                        let mut hist = logs_stdout.lock().unwrap();
+                        if hist.len() > 50 {
+                            hist.remove(0);
+                        }
+                        hist.push(line.clone());
+                    }
+                    parse_freerdp_log_line(&line, &host_name, &event_tx_stdout, &err_stdout).await;
                 }
             });
         }
 
         let event_tx_stderr = event_tx.clone();
         let host_name_err = profile.host.clone();
-
-        // Monitor stderr for errors, status, and certificate verification
+        let logs_stderr = log_history.clone();
+        let err_stderr = last_error.clone();
         if let Some(err) = stderr {
             tokio::spawn(async move {
                 let reader = BufReader::new(err);
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    info!("[FreeRDP stderr] {}", line);
-                    parse_freerdp_log_line(&line, &host_name_err, &event_tx_stderr).await;
+                    warn!("[FreeRDP error] {}", line);
+                    {
+                        let mut hist = logs_stderr.lock().unwrap();
+                        if hist.len() > 50 {
+                            hist.remove(0);
+                        }
+                        hist.push(line.clone());
+                    }
+                    parse_freerdp_log_line(&line, &host_name_err, &event_tx_stderr, &err_stderr).await;
                 }
             });
         }
 
-        // Initialize desktop frame buffer
+        // Initialize display dimensions
         let width = if profile.display.dynamic_resolution {
             1920
         } else {
@@ -146,23 +165,40 @@ impl RdpBackend for FreeRdpBackend {
         let initial_frame = FrameBuffer::placeholder(width, height, 24, 38, 54);
         let _ = event_tx.send(SessionEvent::FrameUpdate(initial_frame)).await;
 
-        // Command handling loop
+        // Session loop
         loop {
             tokio::select! {
                 status = child.wait() => {
                     match status {
                         Ok(exit_code) => {
-                            info!("FreeRDP process exited with status: {}", exit_code);
+                            info!("FreeRDP client finished with status: {}", exit_code);
                             if exit_code.success() {
                                 let _ = event_tx.send(SessionEvent::StateChanged(SessionState::Disconnected)).await;
                             } else {
+                                let specific_reason = {
+                                    let err_guard = last_error.lock().unwrap();
+                                    err_guard.clone()
+                                };
+
+                                let reason = if let Some(r) = specific_reason {
+                                    r
+                                } else {
+                                    let logs = log_history.lock().unwrap();
+                                    let last_few = logs.iter().rev().take(3).cloned().collect::<Vec<_>>();
+                                    if !last_few.is_empty() {
+                                        last_few.into_iter().rev().collect::<Vec<_>>().join(" | ")
+                                    } else {
+                                        format!("Process terminated ({exit_code})")
+                                    }
+                                };
+
                                 let _ = event_tx.send(SessionEvent::StateChanged(SessionState::Failed {
-                                    reason: format!("FreeRDP exited with code: {exit_code}"),
+                                    reason,
                                 })).await;
                             }
                         }
                         Err(e) => {
-                            error!("Error waiting for FreeRDP child process: {}", e);
+                            error!("Error waiting for FreeRDP process: {}", e);
                             let _ = event_tx.send(SessionEvent::StateChanged(SessionState::Failed {
                                 reason: format!("Process error: {e}"),
                             })).await;
@@ -173,27 +209,25 @@ impl RdpBackend for FreeRdpBackend {
                 cmd = command_rx.recv() => {
                     match cmd {
                         Some(SessionCommand::Disconnect) | None => {
-                            info!("Disconnect command received, terminating FreeRDP process");
+                            info!("Disconnecting FreeRDP session");
                             let _ = child.kill().await;
                             let _ = event_tx.send(SessionEvent::StateChanged(SessionState::Disconnected)).await;
                             break;
                         }
                         Some(SessionCommand::Resize { width: new_w, height: new_h, .. }) => {
-                            debug!("Dynamic resize request: {}x{}", new_w, new_h);
+                            debug!("Window resized: {}x{}", new_w, new_h);
                             let _ = event_tx.send(SessionEvent::ServerResolutionChanged {
                                 width: new_w,
                                 height: new_h,
                             }).await;
                         }
                         Some(SessionCommand::SendCtrlAltDel) => {
-                            info!("Sending Ctrl+Alt+Del signal");
+                            info!("Forwarded Ctrl+Alt+Del");
                         }
                         Some(SessionCommand::MuteMicrophone(muted)) => {
                             info!("Toggled microphone mute: {}", muted);
                         }
-                        Some(SessionCommand::Mouse(_)) | Some(SessionCommand::Key(_)) => {
-                            // Forward input events
-                        }
+                        Some(SessionCommand::Mouse(_)) | Some(SessionCommand::Key(_)) => {}
                     }
                 }
             }
@@ -204,7 +238,12 @@ impl RdpBackend for FreeRdpBackend {
 }
 
 /// Parses log output from FreeRDP to extract status changes, cert fingerprints, and errors
-async fn parse_freerdp_log_line(line: &str, host: &str, tx: &mpsc::Sender<SessionEvent>) {
+async fn parse_freerdp_log_line(
+    line: &str,
+    host: &str,
+    tx: &mpsc::Sender<SessionEvent>,
+    last_err: &Arc<Mutex<Option<String>>>,
+) {
     let lower = line.to_lowercase();
 
     if lower.contains("connected to")
@@ -219,10 +258,13 @@ async fn parse_freerdp_log_line(line: &str, host: &str, tx: &mpsc::Sender<Sessio
     } else if lower.contains("authentication failure")
         || lower.contains("logon failed")
         || lower.contains("errconnect_logon_failed")
+        || lower.contains("status_logon_failure")
     {
+        let msg = "Authentication failed. Please verify your username, domain, and password.".to_string();
+        *last_err.lock().unwrap() = Some(msg.clone());
         let _ = tx
             .send(SessionEvent::StateChanged(SessionState::Failed {
-                reason: "Authentication failed. Check username, domain, and password.".to_string(),
+                reason: msg,
             }))
             .await;
     } else if lower.contains("certificate")
@@ -243,14 +285,36 @@ async fn parse_freerdp_log_line(line: &str, host: &str, tx: &mpsc::Sender<Sessio
                 attempt: 1,
             }))
             .await;
-    } else if lower.contains("unable to connect")
-        || lower.contains("connection failed")
-        || lower.contains("connection refused")
-        || lower.contains("errconnect_connect_failed")
-    {
+    } else if lower.contains("connection refused") {
+        let msg = format!("Connection refused by {host}:3389. Ensure RDP is enabled on target machine.");
+        *last_err.lock().unwrap() = Some(msg.clone());
         let _ = tx
             .send(SessionEvent::StateChanged(SessionState::Failed {
-                reason: format!("Failed to connect to {host}: {line}"),
+                reason: msg,
+            }))
+            .await;
+    } else if lower.contains("errconnect_dns_name_not_found") || lower.contains("name or service not known") {
+        let msg = format!("Host '{host}' could not be resolved. Check DNS or IP address.");
+        *last_err.lock().unwrap() = Some(msg.clone());
+        let _ = tx
+            .send(SessionEvent::StateChanged(SessionState::Failed {
+                reason: msg,
+            }))
+            .await;
+    } else if lower.contains("errconnect_security_nego_connect_failed") || lower.contains("security negotiation") {
+        let msg = "Security negotiation failed (NLA/TLS). Check target machine NLA settings.".to_string();
+        *last_err.lock().unwrap() = Some(msg.clone());
+        let _ = tx
+            .send(SessionEvent::StateChanged(SessionState::Failed {
+                reason: msg,
+            }))
+            .await;
+    } else if lower.contains("errconnect_connect_failed") || lower.contains("connectlayer") {
+        let msg = format!("Failed to connect to {host}:3389 (Network timeout or host unreachable).");
+        *last_err.lock().unwrap() = Some(msg.clone());
+        let _ = tx
+            .send(SessionEvent::StateChanged(SessionState::Failed {
+                reason: msg,
             }))
             .await;
     }
