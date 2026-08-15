@@ -1,0 +1,19 @@
+[package]
+name = "cosmic-rdp-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cosmic-rdp-models = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-trait = "0.1"
+bytes = "1.10"
+parking_lot = "0.12"
+libloading = "0.8"
+libc = "0.2"
+which = "7.0"

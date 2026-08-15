@@ -1,0 +1,20 @@
+[package]
+name = "cosmic-rdp-models"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+oo7 = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { version = "1.10", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3.27"

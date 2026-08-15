@@ -1,0 +1,44 @@
+[workspace]
+members = [
+    "crates/cosmic-rdp-models",
+    "crates/cosmic-rdp-core",
+    "crates/cosmic-rdp",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/pop-os/cosmic-rdp"
+
+[workspace.dependencies]
+# GUI Toolkit
+libcosmic = { git = "https://github.com/pop-os/libcosmic.git", features = [
+    "about",
+    "single-instance",
+    "wgpu",
+    "xdg-portal"
+] }
+
+# Async & Runtime
+tokio = { version = "1.48.0", features = ["full"] }
+futures = "0.3"
+
+# Serialization & Config
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Logging & Error Handling
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Credential Store / Keyring (Freedesktop Secret Service)
+oo7 = { version = "0.4", default-features = false, features = ["tokio", "native_crypto"] }
+
+# Internal workspace crates
+cosmic-rdp-models = { path = "crates/cosmic-rdp-models" }
+cosmic-rdp-core = { path = "crates/cosmic-rdp-core" }

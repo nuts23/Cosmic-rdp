@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Cosmic RDP
+Comment=Modern, streamlined RDP client for COSMIC
+Type=Application
+Icon=dev.cosmic.Rdp
+Exec=cosmic-rdp %F
+Terminal=false
+StartupNotify=true
+Categories=COSMIC;Network;RemoteAccess;
+Keywords=COSMIC;rdp;remote;desktop;windows;teams;
+MimeType=application/x-rdp;

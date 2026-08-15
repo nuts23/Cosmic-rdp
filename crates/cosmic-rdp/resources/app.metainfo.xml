@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.cosmic.Rdp</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Cosmic RDP</name>
+  <summary>Modern, streamlined RDP client for COSMIC</summary>
+  <url type="vcs-browser">https://github.com/pop-os/cosmic-rdp</url>
+  <launchable type="desktop-id">dev.cosmic.Rdp.desktop</launchable>
+  <provides>
+    <id>com.system76.CosmicApplication</id>
+    <binaries>
+      <binary>cosmic-rdp</binary>
+    </binaries>
+  </provides>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>touch</control>
+  </supports>
+  <categories>
+    <category>Network</category>
+    <category>RemoteAccess</category>
+    <category>COSMIC</category>
+  </categories>
+  <keywords>
+    <keyword>COSMIC</keyword>
+    <keyword>RDP</keyword>
+    <keyword>Remote</keyword>
+    <keyword>Desktop</keyword>
+  </keywords>
+  <content_rating type="oars-1.1" />
+</component>
